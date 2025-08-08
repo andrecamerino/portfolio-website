@@ -1,8 +1,11 @@
 import React from 'react'
+import ThreeScene from '@/components/ThreeScene'
 
 const page = () => {
   return (
-    <div>page</div>
+    <div>
+      <ThreeScene />
+    </div>
   )
 }
 
