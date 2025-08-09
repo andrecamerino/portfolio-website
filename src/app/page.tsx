@@ -1,12 +1,17 @@
-import React from 'react'
-import BasicScene from '@/components/three/BasicScene'
+import React from "react";
+import BasicScene from "@/components/three/BasicScene";
+import AnimationButton from "@/components/AnimationButton";
 
-const page = () => {
+export default function Page() {
   return (
-    <div>
-      <BasicScene />
-    </div>
-  )
-}
+    <>
+      <div>
+        <BasicScene />
+      </div>
 
-export default page
+      <div className="fixed bottom-5 left-1/2 -translate-x-1/2">
+        <AnimationButton>Click Me</AnimationButton>
+      </div>
+    </>
+  );
+}
