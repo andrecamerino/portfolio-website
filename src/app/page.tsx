@@ -1,10 +1,10 @@
 import React from 'react'
-import ThreeScene from '@/components/ThreeScene'
+import BasicScene from '@/components/three/BasicScene'
 
 const page = () => {
   return (
     <div>
-      <ThreeScene />
+      <BasicScene />
     </div>
   )
 }
