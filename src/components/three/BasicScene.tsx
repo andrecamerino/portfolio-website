@@ -32,10 +32,14 @@ import CameraModel from "./CameraModel";
 import TypewriterText from "./TypewriterText";
 import LoadingFallback from "./LoadingFallback";
 import { OrbitControls } from "@react-three/drei";
-import TestText from "./FontTest";
 import GlowingText from "./GlowingText";
+import CinematicFlyInCamera from "./CinematicFlyInCamera"
 
-export default function BasicScene() {
+type BasicSceneProps = {
+  isAnimating: boolean;
+}
+
+export default function BasicScene({ isAnimating } : BasicSceneProps) {
   // Typed spotlight refs
   const keyLightRef = useRef<THREE.SpotLight>(null!);
   const blueLightRef = useRef<THREE.SpotLight>(null!);
@@ -82,6 +86,8 @@ export default function BasicScene() {
     >
       {/* Fog — starts just after the model, fades floor into darkness */}
       <fog attach="fog" args={[FOG_COLOR, FOG_NEAR, FOG_FAR]} />
+      
+      {isAnimating && <CinematicFlyInCamera target={[0, 4, 0]} duration={4} curveHeight={8} />}
 
       <CameraController />
       <ambientLight intensity={0.02} />
