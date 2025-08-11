@@ -13,13 +13,9 @@ export default function AnimationButton({
   children,
   className = "",
 }: AnimationButtonProps) {
-  const handleClick = () => {
-    alert("Button clicked!");
-  };
-
   return (
     <div
-      onClick={handleClick}
+      onClick={onClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
