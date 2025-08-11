@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useRef, useEffect } from "react";
+import React, { Suspense, useRef, useEffect, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
 import {
@@ -19,7 +19,6 @@ import {
   FLOOR_COLOR,
   FLOOR_METALNESS,
   FLOOR_ROUGHNESS,
-  TEXT_POS,
   TEXT_SIZE,
   TEXT_COLOR,
   ROTATING_WORDS,
@@ -32,41 +31,37 @@ import CameraModel from "./CameraModel";
 import TypewriterText from "./TypewriterText";
 import LoadingFallback from "./LoadingFallback";
 import { OrbitControls } from "@react-three/drei";
-import TestText from "./FontTest";
 import GlowingText from "./GlowingText";
+import CinematicFlyInCamera from "./CinematicFlyInCamera";
 
-export default function BasicScene() {
-  // Typed spotlight refs
-  const keyLightRef = useRef<THREE.SpotLight>(null!);
-  const blueLightRef = useRef<THREE.SpotLight>(null!);
-  const redLightRef = useRef<THREE.SpotLight>(null!);
+type BasicSceneProps = {
+  isAnimating: boolean;
+  onAnimationComplete: () => void;
+};
 
-  // Typed targets
-  const whiteTarget = React.useMemo<THREE.Object3D>(
-    () => new THREE.Object3D(),
-    []
-  );
-  const blueTarget = React.useMemo<THREE.Object3D>(
-    () => new THREE.Object3D(),
-    []
-  );
-  const redTarget = React.useMemo<THREE.Object3D>(
-    () => new THREE.Object3D(),
-    []
-  );
+export default function BasicScene({ isAnimating, onAnimationComplete }: BasicSceneProps) {
+  // SpotLight refs
+  const keyLightRef = useRef<THREE.SpotLight>(null);
+  const blueLightRef = useRef<THREE.SpotLight>(null);
+  const redLightRef = useRef<THREE.SpotLight>(null);
 
-  // Configure key light shadow camera
+  // Targets memoized once, to prevent re-creation every render
+  const whiteTarget = useMemo(() => new THREE.Object3D(), []);
+  const blueTarget = useMemo(() => new THREE.Object3D(), []);
+  const redTarget = useMemo(() => new THREE.Object3D(), []);
+
+  // Configure shadow camera once after mount
   useEffect(() => {
-    if (keyLightRef.current) {
-      const cam = keyLightRef.current.shadow.camera as THREE.PerspectiveCamera;
-      cam.near = 1;
-      cam.far = 100;
-      cam.fov = 30;
-      cam.updateProjectionMatrix();
-    }
+    if (!keyLightRef.current) return;
+
+    const cam = keyLightRef.current.shadow.camera as THREE.PerspectiveCamera;
+    cam.near = 1;
+    cam.far = 100;
+    cam.fov = 30;
+    cam.updateProjectionMatrix();
   }, []);
 
-  // Set spotlight targets
+  // Set spotlight target positions once after mount
   useEffect(() => {
     whiteTarget.position.copy(KEY_LIGHT_TARGET_POS);
     blueTarget.position.copy(BLUE_LIGHT_TARGET_POS);
@@ -78,15 +73,30 @@ export default function BasicScene() {
       shadows
       camera={{ fov: 50 }}
       style={{ height: "100vh", width: "100vw" }}
-      gl={{ antialias: true, alpha: false, clearColor: "black" }}
+      gl={{
+        antialias: false,  // Disable native antialias for perf, consider FXAA postprocessing instead
+        alpha: false,
+        clearColor: "black",
+      }}
+      // dpr={Math.min(window.devicePixelRatio, 1.5)} // Cap device pixel ratio for performance
     >
-      {/* Fog — starts just after the model, fades floor into darkness */}
+      {/* Fog fades floor into darkness */}
       <fog attach="fog" args={[FOG_COLOR, FOG_NEAR, FOG_FAR]} />
+
+      {/* Animate camera fly-in only if isAnimating */}
+      {isAnimating && (
+        <CinematicFlyInCamera
+          target={[0, 4, 0]}
+          duration={3}
+          curveHeight={8}
+          onAnimationComplete={onAnimationComplete}
+        />
+      )}
 
       <CameraController />
       <ambientLight intensity={0.02} />
 
-      {/* White key light */}
+      {/* White key light with shadows */}
       <spotLight
         ref={keyLightRef}
         color="white"
@@ -95,14 +105,14 @@ export default function BasicScene() {
         angle={Math.PI / 24}
         penumbra={0.05}
         castShadow
-        shadow-mapSize-width={4096}
-        shadow-mapSize-height={4096}
+        shadow-mapSize-width={2048}  // Reduced shadow map size for performance
+        shadow-mapSize-height={2048}
         shadow-bias={SHADOW_BIAS}
         target={whiteTarget}
       />
       <primitive object={whiteTarget} />
 
-      {/* Blue fill light */}
+      {/* Blue fill light (no shadows for better performance) */}
       <spotLight
         ref={blueLightRef}
         color="blue"
@@ -111,10 +121,11 @@ export default function BasicScene() {
         angle={Math.PI / 20}
         penumbra={0.1}
         target={blueTarget}
+        castShadow={false}
       />
       <primitive object={blueTarget} />
 
-      {/* Red fill light */}
+      {/* Red fill light (no shadows for better performance) */}
       <spotLight
         ref={redLightRef}
         color="red"
@@ -123,15 +134,12 @@ export default function BasicScene() {
         angle={Math.PI / 20}
         penumbra={0.1}
         target={redTarget}
+        castShadow={false}
       />
       <primitive object={redTarget} />
 
       {/* Floor */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, FLOOR_Y, 0]}
-        receiveShadow
-      >
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, FLOOR_Y, 0]} receiveShadow>
         <planeGeometry args={[FLOOR_SIZE, FLOOR_SIZE]} />
         <meshStandardMaterial
           color={FLOOR_COLOR}
@@ -140,21 +148,24 @@ export default function BasicScene() {
         />
       </mesh>
 
-      {/* Typewriter text */}
-      <TypewriterText
-        position={[5, 0, -3]}
-        fontSize={TEXT_SIZE}
-        color={TEXT_COLOR}
-        rotation={[Math.PI / 1, Math.PI / -2, Math.PI / 1]}
-        anchorX="center"
-        anchorY="middle"
-        castShadow
-        baseText=""
-        rotatingWords={ROTATING_WORDS}
-        speed={100}
-        pause={1500}
-      />
+      {/* Typewriter text only shown when not animating */}
+      {!isAnimating && (
+        <TypewriterText
+          position={[5, 0, -3]}
+          fontSize={TEXT_SIZE}
+          color={TEXT_COLOR}
+          rotation={[Math.PI / 1, Math.PI / -2, Math.PI / 1]}
+          anchorX="center"
+          anchorY="middle"
+          castShadow
+          baseText=""
+          rotatingWords={ROTATING_WORDS}
+          speed={100}
+          pause={1500}
+        />
+      )}
 
+      {/* Glowing texts */}
       <GlowingText
         text="Andre Camerino"
         size={0.5}
@@ -219,7 +230,7 @@ export default function BasicScene() {
         castShadow
       />
 
-      {/* Model with loading fallback */}
+      {/* Model with fallback */}
       <Suspense fallback={<LoadingFallback />}>
         <CameraModel />
       </Suspense>
