@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { FontLoader } from "three/addons/loaders/FontLoader.js";
 import { TextGeometry } from "three/addons/geometries/TextGeometry.js";
 import * as THREE from "three";
@@ -9,8 +9,8 @@ import { EffectComposer, Bloom } from "@react-three/postprocessing";
 type TypewriterTextProps = {
   baseText: string;
   rotatingWords: string[];
-  speed?: number;
-  pause?: number;
+  speed?: number;       // typing speed in ms per character
+  pause?: number;       // pause after typing/deleting word
 } & JSX.IntrinsicElements["group"];
 
 export default function TypewriterText({
@@ -22,84 +22,118 @@ export default function TypewriterText({
 }: TypewriterTextProps) {
   const [font, setFont] = useState<THREE.Font | null>(null);
   const [displayedText, setDisplayedText] = useState(baseText);
-  const [wordIndex, setWordIndex] = useState(0);
-  const [charIndex, setCharIndex] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [caretVisible, setCaretVisible] = useState(true);
+  const wordIndex = useRef(0);
+  const charIndex = useRef(0);
+  const isDeleting = useRef(false);
+  const caretVisible = useRef(true);
   const meshRef = useRef<THREE.Mesh>(null);
+  const animationFrame = useRef<number>();
+  const lastTimestamp = useRef(0);
+  const nextCharTime = useRef(0);
+  const pauseUntil = useRef(0);
 
-  // Load font once on mount
+  // Load font once
   useEffect(() => {
-    const loader = new FontLoader();
-    loader.load(
+    new FontLoader().load(
       "/fonts/dm_serif_italic.typeface.json",
-      (loadedFont) => setFont(loadedFont),
+      setFont,
       undefined,
       (err) => console.error("Font load error", err)
     );
   }, []);
 
-  // Caret blinking effect
+  // Blink caret with RAF
   useEffect(() => {
-    const blinkInterval = setInterval(() => {
-      setCaretVisible((v) => !v);
-    }, 500);
-    return () => clearInterval(blinkInterval);
+    function blink(timestamp: number) {
+      if (!lastTimestamp.current) lastTimestamp.current = timestamp;
+      if (timestamp - lastTimestamp.current >= 500) {
+        caretVisible.current = !caretVisible.current;
+        lastTimestamp.current = timestamp;
+      }
+      animationFrame.current = requestAnimationFrame(blink);
+    }
+    animationFrame.current = requestAnimationFrame(blink);
+    return () => animationFrame.current && cancelAnimationFrame(animationFrame.current);
   }, []);
 
-  // Typing effect logic
+  // Main typewriter animation with RAF
   useEffect(() => {
     if (!font) return;
 
-    const currentWord = rotatingWords[wordIndex];
-    const fullText = `${baseText}${currentWord}`;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    function tick(timestamp: number) {
+      if (!nextCharTime.current) nextCharTime.current = timestamp;
+      if (timestamp < pauseUntil.current) {
+        animationFrame.current = requestAnimationFrame(tick);
+        return;
+      }
 
-    if (!isDeleting) {
-      if (charIndex < fullText.length) {
-        timeoutId = setTimeout(() => {
-          setDisplayedText(fullText.slice(0, charIndex + 1));
-          setCharIndex((c) => c + 1);
-        }, speed);
-      } else {
-        timeoutId = setTimeout(() => setIsDeleting(true), pause);
+      if (timestamp >= nextCharTime.current) {
+        const currentWord = rotatingWords[wordIndex.current];
+        const fullText = baseText + currentWord;
+
+        if (!isDeleting.current) {
+          if (charIndex.current < fullText.length) {
+            charIndex.current++;
+            setDisplayedText(fullText.slice(0, charIndex.current));
+            nextCharTime.current = timestamp + speed;
+          } else {
+            isDeleting.current = true;
+            pauseUntil.current = timestamp + pause;
+          }
+        } else {
+          if (charIndex.current > baseText.length) {
+            charIndex.current--;
+            setDisplayedText(fullText.slice(0, charIndex.current));
+            nextCharTime.current = timestamp + speed / 2;
+          } else {
+            isDeleting.current = false;
+            wordIndex.current = Math.floor(Math.random() * rotatingWords.length);
+            pauseUntil.current = timestamp + pause / 2;
+          }
+        }
       }
-    } else {
-      if (charIndex > baseText.length) {
-        timeoutId = setTimeout(() => {
-          setDisplayedText(fullText.slice(0, charIndex - 1));
-          setCharIndex((c) => c - 1);
-        }, speed / 2);
-      } else {
-        timeoutId = setTimeout(() => {
-          setIsDeleting(false);
-          setWordIndex(() => Math.floor(Math.random() * rotatingWords.length));
-        }, pause / 2);
-      }
+      animationFrame.current = requestAnimationFrame(tick);
     }
 
-    return () => clearTimeout(timeoutId);
-  }, [charIndex, isDeleting, baseText, rotatingWords, wordIndex, speed, pause, font]);
+    animationFrame.current = requestAnimationFrame(tick);
+    return () => animationFrame.current && cancelAnimationFrame(animationFrame.current);
+  }, [baseText, rotatingWords, speed, pause, font]);
 
-  // Update text geometry when displayedText or caret changes
+  // Update geometry only if text or caret changes
   useEffect(() => {
     if (!font || !meshRef.current) return;
 
-    const textToShow = displayedText + (caretVisible ? "|" : "");
-    const textGeo = new TextGeometry(textToShow, {
-      font: font,
-      size: 0.5,
-      depth: 0.05,
-      curveSegments: 12,
-      bevelEnabled: false,
-    });
+    let lastText = "";
+    function updateGeometry() {
+      const textToShow = displayedText + (caretVisible.current ? "|" : "");
+      if (textToShow === lastText) return; // skip if no change
+      lastText = textToShow;
 
-    textGeo.computeBoundingBox();
-    // Left aligned: no centering offset
+      const textGeo = new TextGeometry(textToShow, {
+        font,
+        size: 0.5,
+        depth: 0.05,
+        curveSegments: 12,
+        bevelEnabled: false,
+      });
 
-    meshRef.current.geometry.dispose();
-    meshRef.current.geometry = textGeo;
-  }, [displayedText, font, caretVisible]);
+      textGeo.computeBoundingBox();
+
+      meshRef.current.geometry.dispose();
+      meshRef.current.geometry = textGeo;
+    }
+
+    updateGeometry();
+
+    // Update on caret blink using RAF for smoothness
+    let rafId: number;
+    function animate() {
+      updateGeometry();
+      rafId = requestAnimationFrame(animate);
+    }
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
+  }, [displayedText, font]);
 
   if (!font) return null;
 
@@ -107,15 +141,10 @@ export default function TypewriterText({
     <>
       <group {...props}>
         <mesh ref={meshRef}>
-          <meshStandardMaterial
-            color="white"
-            emissive="purple"
-            emissiveIntensity={2}
-          />
+          <meshStandardMaterial color="white" emissive="purple" emissiveIntensity={2} />
         </mesh>
       </group>
 
-      {/* Subtle glow effect */}
       <EffectComposer>
         <Bloom intensity={3} luminanceThreshold={0} luminanceSmoothing={0.2} />
       </EffectComposer>
